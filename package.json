@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.23.1",
+    "@e2b/code-interpreter": "^1.5.1",
     "@inngest/agent-kit": "^0.8.3",
     "@prisma/client": "^6.10.1",
     "@tanstack/react-query": "^5.81.5",
