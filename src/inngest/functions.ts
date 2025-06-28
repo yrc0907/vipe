@@ -1,14 +1,27 @@
 import { inngest } from "./client";
 import { createAgent, openai } from '@inngest/agent-kit';
-
+import { Sandbox } from '@e2b/code-interpreter'
+import { getSandbox } from "./utils";
 
 export const helloWorld = inngest.createFunction(
   { id: "hello-world" },
   { event: "test/hello.world" },
-  async ({ event }) => {
+  async ({ event, step }) => {
     console.log(process.env.OPENAI_API_KEY);
-    const summarizer = createAgent({
 
+    const sandboxId = await step.run("generate-sandbox-id", async () => {
+      const sandbox = await Sandbox.create("veb-nextjs-test-897");
+      return sandbox.sandboxId;
+    })
+
+    const sandboxUrl = await step.run("get-sandbox-url", async () => {
+      const sandbox = await getSandbox(sandboxId);
+      const host = sandbox.getHost(3000)
+      return `https://${host}`
+    })
+
+
+    const summarizer = createAgent({
       name: "My Agent",
       system: "You are a helpful assistant.",
       tools: [],
@@ -22,6 +35,6 @@ export const helloWorld = inngest.createFunction(
     )
 
     console.log(output);
-    return { message: output };
+    return { output, sandboxUrl };
   },
 );
