@@ -13,10 +13,40 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  clerkId   String   @unique
-  email     String   @unique
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum MessageType {
+  RESULT
+  ERROR
+  PENDING
+}
+
+model Message {
+  id String @id @default(uuid())
+  content String
+  role MessageRole
+  type MessageType?
+  userId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  fragments Fragment[]
+
+  @@index([userId])
+}
+
+model Fragment {
+  id String @id @default(uuid())
+  messageId String
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  sandboxUrl String
+  title String
+  files String
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
