@@ -12,6 +12,7 @@ interface AgentState {
   summary: string;
   files: { [path: string]: string };
 }
+
 export const helloWorld = inngest.createFunction(
   { id: "hello-world" },
   { event: "test/hello.world" },
@@ -22,8 +23,6 @@ export const helloWorld = inngest.createFunction(
       const sandbox = await Sandbox.create("veb-nextjs-test-897");
       return sandbox.sandboxId;
     })
-
-
 
     const codeAgent = createAgent<AgentState>({
       name: "My Agent",
@@ -154,7 +153,6 @@ export const helloWorld = inngest.createFunction(
         return codeAgent;
       }
     })
-
 
     const result = await network.run(event.data.text);
 
