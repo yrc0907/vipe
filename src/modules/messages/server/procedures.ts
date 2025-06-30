@@ -6,14 +6,21 @@ import { inngest } from "@/inngest/client";
 const prisma = new PrismaClient();
 
 export const send = publicProcedure
-  .input(z.object({ content: z.string(), userId: z.string() }))
+  .input(
+    z.object({
+      content: z.string(),
+      userId: z.string(),
+      projectId: z.string(),
+    })
+  )
   .mutation(async ({ input }) => {
-    const { content, userId } = input;
+    const { content, userId, projectId } = input;
 
     const message = await prisma.message.create({
       data: {
         content,
         userId,
+        projectId,
         role: "USER",
         type: "PENDING",
       },
@@ -25,6 +32,7 @@ export const send = publicProcedure
         text: content,
         messageId: message.id,
         userId: userId,
+        projectId: projectId,
       },
     });
 
@@ -32,12 +40,11 @@ export const send = publicProcedure
   });
 
 export const list = publicProcedure
-  .input(z.object({ userId: z.string() }))
+  .input(z.object({ projectId: z.string() }))
   .query(async ({ input }) => {
-    const { userId } = input;
     return await prisma.message.findMany({
       where: {
-        userId: userId,
+        projectId: input.projectId,
       },
       orderBy: {
         createdAt: "desc",
