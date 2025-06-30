@@ -27,6 +27,7 @@ enum MessageType {
 model Project {
   id String @id @default(uuid())
   name String
+  description String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   messages Message[]
@@ -44,6 +45,7 @@ model Message {
   fragments Fragment[]
   projectId String
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contextId String?
   @@index([userId])
 }
 
@@ -55,6 +57,8 @@ model Fragment {
   sandboxUrl String
   title String
   files String
+  description String?
+  tags String[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

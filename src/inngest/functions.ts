@@ -23,7 +23,6 @@ export const helloWorld = inngest.createFunction(
       const sandbox = await Sandbox.create("veb-nextjs-test-897");
       return sandbox.sandboxId;
     })
-
     const codeAgent = createAgent<AgentState>({
       name: "My Agent",
       description: "An expert coding agent",
@@ -154,7 +153,96 @@ export const helloWorld = inngest.createFunction(
       }
     })
 
-    const result = await network.run(event.data.text);
+    const { messageId, userId } = event.data;
+
+    // 更新状态：开始处理
+    await step.run("update-processing-status", async () => {
+      await prisma.message.update({
+        where: { id: messageId },
+        data: {
+          content: "Analyzing your request...",
+          role: "ASSISTANT",
+          type: "PENDING",
+          userId,
+        }
+      });
+    });
+
+    const historyLines: string[] = [];
+    if (event.data.history) {
+      for (const msg of event.data.history) {
+        if (typeof msg.content === 'string') {
+          const role = msg.role === 'user' ? 'User' : 'Assistant';
+          historyLines.push(`${role}: ${msg.content}`);
+        }
+      }
+    }
+    const historyStr = historyLines.join('\n');
+
+    // 增强上下文处理，添加项目信息
+    const projectContext = await step.run("get-project-context", async () => {
+      const project = await prisma.project.findUnique({
+        where: { id: event.data.projectId },
+        include: {
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 10, // 获取最近的10条消息
+            include: { fragments: true }
+          }
+        }
+      });
+      return project;
+    });
+
+    // 构建更丰富的上下文
+    let enhancedContext = `### PROJECT INFO ###\nProject Name: ${projectContext?.name || 'Unknown'}\n`;
+
+    // 如果description字段存在则添加
+    if (projectContext && 'description' in projectContext && projectContext.description) {
+      enhancedContext += `Project Description: ${projectContext.description}\n\n`;
+    } else {
+      enhancedContext += `Project Description: No description\n\n`;
+    }
+
+    // 添加最近的代码片段信息
+    const recentFragments = projectContext?.messages.flatMap(m => m.fragments) || [];
+    if (recentFragments.length > 0) {
+      enhancedContext += "### RECENT CODE FRAGMENTS ###\n";
+      recentFragments.slice(0, 3).forEach(fragment => {
+        enhancedContext += `- ${fragment.title || 'Untitled Fragment'}\n`;
+      });
+      enhancedContext += "\n";
+    }
+
+    enhancedContext += `### CONVERSATION HISTORY ###\n${historyStr}\n\n### CURRENT TASK ###\nUser: ${event.data.text}`;
+
+    // 更新状态：生成代码中
+    await step.run("update-generating-status", async () => {
+      await prisma.message.update({
+        where: { id: messageId },
+        data: {
+          content: "Generating code solution...",
+          role: "ASSISTANT",
+          type: "PENDING",
+          userId,
+        }
+      });
+    });
+
+    const result = await network.run(enhancedContext);
+
+    // 更新状态：准备沙盒
+    await step.run("update-sandbox-status", async () => {
+      await prisma.message.update({
+        where: { id: messageId },
+        data: {
+          content: "Setting up sandbox environment...",
+          role: "ASSISTANT",
+          type: "PENDING",
+          userId,
+        }
+      });
+    });
 
     const isError = !result.state.data.summary || Object.keys(result.state.data.files || {}).length === 0;
 
@@ -165,7 +253,6 @@ export const helloWorld = inngest.createFunction(
     })
 
     await step.run("save-result", async () => {
-      const { messageId, userId } = event.data;
       if (isError) {
         return await prisma.message.update({
           where: { id: messageId },

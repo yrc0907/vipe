@@ -8,7 +8,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { type ImperativePanelGroupHandle } from "react-resizable-panels";
 import { trpc } from "@/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,6 +29,8 @@ type Fragment = {
   files: string;
   createdAt: string;
   updatedAt: string;
+  description: string | null;
+  tags: string[];
 };
 
 type MessageWithFragments = {
@@ -42,6 +43,7 @@ type MessageWithFragments = {
   updatedAt: string;
   projectId: string;
   fragments: Fragment[];
+  contextId: string | null;
 };
 
 type Files = Record<string, string>;
@@ -119,7 +121,6 @@ export default function ProjectPage() {
   const [viewport, setViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [isAiResponding, setIsAiResponding] = useState(false);
 
-  const panelGroupRef = useRef<ImperativePanelGroupHandle>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const initialLoadHandled = useRef(false);
 
@@ -129,6 +130,20 @@ export default function ProjectPage() {
       enabled: !!projectId,
     }
   );
+
+  // 在组件加载时检查是否需要重置AI响应状态
+  useEffect(() => {
+    if (projectDetailsQuery.data?.messages) {
+      const messages = projectDetailsQuery.data.messages;
+      if (messages.length > 0) {
+        const lastMessage = messages[messages.length - 1];
+        if (lastMessage.role === 'ASSISTANT' &&
+          (lastMessage.type === 'RESULT' || lastMessage.type === 'ERROR')) {
+          setIsAiResponding(false);
+        }
+      }
+    }
+  }, [projectDetailsQuery.data]);
 
   useEffect(() => {
     if (projectDetailsQuery.data && !initialLoadHandled.current) {
@@ -162,6 +177,7 @@ export default function ProjectPage() {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           fragments: [],
+          contextId: null,
         };
 
         const optimisticAiMessage: MessageWithFragments = {
@@ -174,6 +190,7 @@ export default function ProjectPage() {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           fragments: [],
+          contextId: null,
         };
 
         return {
@@ -210,7 +227,7 @@ export default function ProjectPage() {
 
     const interval = setInterval(() => {
       utils.project.get.invalidate({ id: projectId });
-    }, 2000);
+    }, 1000); // 更快的刷新率，确保及时获取后端状态更新
 
     return () => clearInterval(interval);
   }, [isAiResponding, projectId, utils.project.get]);
@@ -220,6 +237,16 @@ export default function ProjectPage() {
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
       if (lastMessage.role === 'ASSISTANT' && lastMessage.type !== 'PENDING') {
+        setIsAiResponding(false);
+
+        // 如果AI回复包含fragments，自动选择第一个fragment展示
+        if (lastMessage.fragments && lastMessage.fragments.length > 0) {
+          handleFragmentCardClick(lastMessage.fragments[0]);
+        }
+      }
+      // 添加额外检查：如果后端已完成但前端仍显示加载状态，则重置加载状态
+      if (lastMessage.role === 'ASSISTANT' &&
+        (lastMessage.type === 'RESULT' || lastMessage.type === 'ERROR')) {
         setIsAiResponding(false);
       }
     }
@@ -275,10 +302,12 @@ export default function ProjectPage() {
   const activeFileContent = activeFile ? files[activeFile] : null;
 
   return (
-    <ResizablePanelGroup ref={panelGroupRef} direction="horizontal" className="min-h-screen w-full bg-background">
-      <ResizablePanel defaultSize={40} minSize={30}>
-        <div className="flex flex-col h-screen p-2 md:p-4">
-          <div className="flex items-center justify-between mb-4 pb-2 border-b">
+    <div className="h-screen w-full flex flex-col overflow-hidden bg-background">
+      <ResizablePanelGroup direction="horizontal" className="flex-grow overflow-hidden">
+        {/* Left Panel - Chat */}
+        <ResizablePanel defaultSize={40} minSize={30} className="flex flex-col overflow-hidden">
+          {/* Header - Fixed */}
+          <div className="flex items-center justify-between p-2 md:p-4 border-b">
             <Button asChild variant="outline" size="sm">
               <Link href="/">&larr; Back to Projects</Link>
             </Button>
@@ -287,59 +316,70 @@ export default function ProjectPage() {
             </h2>
           </div>
 
-          <ScrollArea className="flex-1 -mx-4" ref={scrollAreaRef}>
-            <div className="px-4 space-y-4 py-4">
-              {messages.map((msg: MessageWithFragments) => (
-                <div key={msg.id} className={`flex flex-col items-start w-full ${msg.role === 'USER' ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-2xl p-3 rounded-lg ${msg.role === 'USER' ? 'bg-primary text-primary-foreground self-end' : 'bg-muted self-start'}`}>
-                    {msg.role === 'ASSISTANT' && msg.type === 'PENDING' ? (
-                      <div className="flex items-center space-x-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>{msg.content}</span>
-                      </div>
-                    ) : (
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                    )}
-                    {msg.fragments.map((frag: Fragment) => (
-                      <Card key={frag.id} className="mt-2 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleFragmentCardClick(frag)}>
-                        <CardHeader className="flex flex-row items-center space-x-2 p-3">
-                          <Code className="w-4 h-4" />
-                          <CardTitle className="text-sm font-semibold">Code Generated</CardTitle>
-                        </CardHeader>
-                      </Card>
-                    ))}
+          {/* Chat Area - Scrollable */}
+          <div className="flex-grow overflow-hidden">
+            <ScrollArea className="h-full" ref={scrollAreaRef}>
+              <div className="px-4 space-y-4 py-4">
+                {messages.map((msg: MessageWithFragments) => (
+                  <div key={msg.id} className={`flex flex-col items-start w-full ${msg.role === 'USER' ? 'items-end' : 'items-start'}`}>
+                    <div className={cn("max-w-2xl p-3 rounded-lg", {
+                      'bg-primary text-primary-foreground self-end': msg.role === 'USER',
+                      'bg-muted self-start': msg.role === 'ASSISTANT'
+                    })}>
+                      {msg.role === 'ASSISTANT' && msg.type === 'PENDING' ? (
+                        <div className="flex items-center space-x-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>{msg.content}</span>
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                      )}
+                      {msg.fragments.map((frag: Fragment) => (
+                        <Card key={frag.id} className="mt-2 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleFragmentCardClick(frag)}>
+                          <CardHeader className="flex flex-row items-center space-x-2 p-3">
+                            <Code className="w-4 h-4" />
+                            <CardTitle className="text-sm font-semibold">Code Generated</CardTitle>
+                          </CardHeader>
+                        </Card>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
 
-          <form onSubmit={handleSubmit} className="flex items-center gap-2 pt-4 border-t mt-auto">
-            <Textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Ask for a new component or describe your changes..."
-              className="flex-1"
-              rows={1}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmit(e);
-                }
-              }}
-              disabled={sendMessageMutation.isPending || isAiResponding}
-            />
-            <Button type="submit" disabled={!text.trim() || sendMessageMutation.isPending || isAiResponding}>
-              <Send className="h-4 w-4" />
-            </Button>
-          </form>
-        </div>
-      </ResizablePanel>
-      <ResizableHandle withHandle />
-      <ResizablePanel defaultSize={60} minSize={30}>
-        <div className="flex flex-col h-screen bg-muted/40">
+          {/* Input Form - Fixed */}
+          <div className="p-2 md:p-4 border-t">
+            <form onSubmit={handleSubmit} className="flex items-center gap-2">
+              <Textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Ask for a new component or describe your changes..."
+                className="flex-1"
+                rows={1}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e);
+                  }
+                }}
+                disabled={sendMessageMutation.isPending || isAiResponding}
+              />
+              <Button type="submit" disabled={!text.trim() || sendMessageMutation.isPending || isAiResponding}>
+                <Send className="h-4 w-4" />
+              </Button>
+            </form>
+          </div>
+        </ResizablePanel>
+
+        <ResizableHandle withHandle />
+
+        {/* Right Panel - Code/Preview */}
+        <ResizablePanel defaultSize={60} minSize={30} className="flex flex-col overflow-hidden">
           {selectedFragment ? (
-            <Tabs defaultValue="preview" className="flex flex-col h-full w-full">
+            <Tabs defaultValue="preview" className="flex flex-col h-full">
+              {/* Tabs Header - Fixed */}
               <div className="flex items-center justify-between p-2 md:p-4 border-b bg-background">
                 <TabsList>
                   <TabsTrigger value="preview"><Eye className="w-4 h-4 mr-2" />Preview</TabsTrigger>
@@ -359,38 +399,44 @@ export default function ProjectPage() {
                   </div>
                 </div>
               </div>
-              <TabsContent value="preview" className="flex-1 bg-background shadow-inner overflow-hidden m-0">
+
+              {/* Tab Contents - Scrollable */}
+              <TabsContent value="preview" className="flex-1 overflow-hidden m-0">
                 <iframe
                   src={selectedFragment.sandboxUrl}
-                  className="border-0"
+                  className="w-full h-full border-0"
                   style={{
                     width: viewport === 'mobile' ? '412px' : viewport === 'tablet' ? '768px' : '100%',
-                    height: '100%',
                     maxWidth: '100%'
                   }}
                 />
               </TabsContent>
-              <TabsContent value="code" className="flex-1 m-0 overflow-hidden">
-                <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-                  <ResizablePanel defaultSize={25} minSize={15} className="bg-background p-2">
-                    <ScrollArea className="h-full">
+
+              <TabsContent value="code" className="flex-1 overflow-hidden m-0">
+                <ResizablePanelGroup direction="horizontal" className="h-full">
+                  {/* File Tree - Scrollable */}
+                  <ResizablePanel defaultSize={25} minSize={15} className="bg-background">
+                    <ScrollArea className="h-full p-2">
                       <h4 className="text-sm font-semibold mb-2 p-2">Files</h4>
                       <FileTreeView tree={fileTree} onFileClick={setActiveFile} activeFile={activeFile} />
                     </ScrollArea>
                   </ResizablePanel>
+
                   <ResizableHandle />
-                  <ResizablePanel defaultSize={75} minSize={30}>
-                    <div className="flex flex-col h-full bg-[#282c34]">
-                      <div className="flex items-center justify-between bg-background border-b text-sm text-muted-foreground p-2">
-                        <div className="flex items-center space-x-1">
-                          <span>app</span>
-                          <ChevronRight className="w-4 h-4" />
-                          <span className="font-semibold text-foreground">{activeFile}</span>
-                        </div>
-                        <Button variant="ghost" size="icon" onClick={handleCopy} disabled={!activeFileContent}>
-                          <Copy className="h-4 w-4" />
-                        </Button>
+
+                  {/* Code Viewer - Fixed Header, Scrollable Content */}
+                  <ResizablePanel defaultSize={75} minSize={30} className="flex flex-col overflow-hidden">
+                    <div className="flex items-center justify-between bg-background border-b text-sm text-muted-foreground p-2">
+                      <div className="flex items-center space-x-1">
+                        <span>app</span>
+                        <ChevronRight className="w-4 h-4" />
+                        <span className="font-semibold text-foreground">{activeFile}</span>
                       </div>
+                      <Button variant="ghost" size="icon" onClick={handleCopy} disabled={!activeFileContent}>
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="flex-grow overflow-hidden bg-[#282c34]">
                       <ScrollArea className="h-full">
                         <SyntaxHighlighter language="tsx" style={atomDark} customStyle={{ margin: 0, height: '100%', width: '100%' }} showLineNumbers>
                           {String(activeFileContent || "")}
@@ -408,8 +454,8 @@ export default function ProjectPage() {
               <p>Select a &quot;Code Generated&quot; card from the chat to see the result here.</p>
             </div>
           )}
-        </div>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </div>
   );
 }
