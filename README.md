@@ -1,6 +1,7 @@
 ### AI 驱动的应用程序生成器
 
 由 Inngest 提供支持的可编程 AI 代理，通过简单提示词生成全栈应用程序。使用 OpenAI、Anthropic 和 Grok 等模型处理代码生成，在 E2B 和 Docker 安全云沙箱中执行所有操作。
+![Uploading image.png…]()
 
 #### 技术覆盖范围
 
